@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>活量係数 = 相互作用エネルギーの翻訳</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { text-align:center; }
+  .row { display:flex; gap:16px; margin-top:10px; }
+  .panel { border:1px solid #ccc; padding:8px; }
+  canvas { background:#fff; }
+  .controls label { display:block; margin:6px 0; }
+</style>
+</head>
+
+<body>
+<h1>活量係数 = 逃げではなく「相互作用エネルギーの翻訳」</h1>
+<div style="text-align:center;">
+  気液平衡条件： μ<sub>g</sub>(p,T) = μ<sub>l</sub>(x,T) （for all x）
+</div>
+
+<div class="controls">
+  <label>x (液相モル分率)
+    <input type="range" id="x" min="0.01" max="0.99" step="0.01" value="0.5">
+    <span id="xv"></span>
+  </label>
+  <label>W（相互作用エネルギー, J/mol）
+    <input type="range" id="W" min="-8000" max="8000" step="200" value="2000">
+    <span id="Wv"></span>
+  </label>
+  <label>T (K)
+    <input type="range" id="T" min="250" max="600" step="10" value="300">
+    <span id="Tv"></span>
+  </label>
+  <label>p*（純溶媒蒸気圧, 任意単位）
+    <input type="range" id="ps" min="0.5" max="2.0" step="0.05" value="1.0">
+    <span id="psv"></span>
+  </label>
+</div>
+
+<div class="row">
+  <div class="panel">
+    <b>左：液相 μ の分解（相対量）</b><br>
+    <canvas id="muCanvas" width="520" height="260"></canvas><br>
+    青：μ<sup>ideal</sup>=RT ln x　
+    赤：μ<sup>excess</sup>=W(1−x)²　
+    黒：μ<sup>total</sup>
+  </div>
+
+  <div class="panel">
+    <b>右上：p–x と Raoult からのずれ</b><br>
+    <canvas id="pCanvas" width="520" height="260"></canvas><br>
+    青：理想 p=xp*　
+    赤：実在 p=xγp*
+  </div>
+</div>
+
+<div class="row">
+  <div class="panel">
+    <b>右下：活量係数 γ(x,T) と lnγ(x,T)（2軸）</b><br>
+    <canvas id="gCanvas" width="520" height="260"></canvas><br>
+    左軸（緑）：lnγ = μ<sup>excess</sup>/RT　
+    右軸（黒）：γ
+  </div>
+</div>
+
+<script>
+/* ===== HiDPI canvas ===== */
+function setupHiDPICanvas(canvas, w, h){
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width  = w + "px";
+  canvas.style.height = h + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  return ctx;
+}
+
+/* ===== Utilities ===== */
+const R = 8.314;
+const N = 200;
+const xs = Array.from({length:N},(_,i)=>i/(N-1));
+
+function axes(ctx, pad, xlabel, ylabel){
+  ctx.strokeStyle="#000";
+  ctx.beginPath();
+  ctx.moveTo(pad, pad);
+  ctx.lineTo(pad, 260-pad);
+  ctx.lineTo(520-pad, 260-pad);
+  ctx.stroke();
+  ctx.font="12px sans-serif";
+  ctx.fillText(xlabel, 220, 255);
+  ctx.fillText(ylabel, 5, 20);
+}
+
+function plot(ctx, xs, ys, ymin, ymax, color){
+  ctx.strokeStyle=color;
+  ctx.beginPath();
+  xs.forEach((x,i)=>{
+    const X = 40 + x*(520-80);
+    const Y = 260-40 - (ys[i]-ymin)/(ymax-ymin)*(260-80);
+    if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+  });
+  ctx.stroke();
+}
+
+function vline(ctx, x){
+  const X = 40 + x*(520-80);
+  ctx.strokeStyle="#666";
+  ctx.beginPath();
+  ctx.moveTo(X,40);
+  ctx.lineTo(X,220);
+  ctx.stroke();
+}
+
+/* ===== Model ===== */
+function lnGamma(x,W,T){ return W*(1-x)*(1-x)/(R*T); }
+function gamma(x,W,T){ return Math.exp(lnGamma(x,W,T)); }
+
+/* ===== Draw ===== */
+function drawAll(){
+  const x0 = +x.value;
+  const W0 = +W.value;
+  const T0 = +T.value;
+  const ps0 = +ps.value;
+
+  xv.textContent = x0.toFixed(2);
+  Wv.textContent = W0.toFixed(0);
+  Tv.textContent = T0.toFixed(0);
+  psv.textContent = ps0.toFixed(2);
+
+  /* μ panel */
+  const muCtx = setupHiDPICanvas(muCanvas,520,260);
+  const muIdeal = xs.map(x=>R*T0*Math.log(x||1e-6));
+  const muEx    = xs.map(x=>W0*(1-x)*(1-x));
+  const muTot   = muIdeal.map((v,i)=>v+muEx[i]);
+  const ymin = Math.min(...muTot), ymax = Math.max(...muTot);
+
+  axes(muCtx,40,"x","μ");
+  plot(muCtx,xs,muIdeal,ymin,ymax,"blue");
+  plot(muCtx,xs,muEx,ymin,ymax,"red");
+  plot(muCtx,xs,muTot,ymin,ymax,"black");
+  vline(muCtx,x0);
+
+  /* p-x panel */
+  const pCtx = setupHiDPICanvas(pCanvas,520,260);
+  const pIdeal = xs.map(x=>x*ps0);
+  const pReal  = xs.map(x=>x*gamma(x,W0,T0)*ps0);
+  axes(pCtx,40,"x","p");
+  plot(pCtx,xs,pIdeal,0,ps0*1.2,"blue");
+  plot(pCtx,xs,pReal ,0,ps0*1.2,"red");
+  vline(pCtx,x0);
+
+  /* gamma panel */
+  const gCtx = setupHiDPICanvas(gCanvas,520,260);
+  const lng = xs.map(x=>lnGamma(x,W0,T0));
+  const gam = xs.map(x=>Math.exp(lng[xs.indexOf(x)]));
+  axes(gCtx,40,"x","lnγ");
+  plot(gCtx,xs,lng,Math.min(...lng),Math.max(...lng),"green");
+
+  // right axis (γ)
+  gCtx.font="12px sans-serif";
+  gCtx.fillText("γ",500,20);
+  plot(gCtx,xs,gam,Math.min(...gam),Math.max(...gam),"black");
+  vline(gCtx,x0);
+}
+
+["x","W","T","ps"].forEach(id=>{
+  document.getElementById(id).addEventListener("input",drawAll);
+});
+drawAll();
+</script>
+</body>
+</html>
